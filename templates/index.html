@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Infinite Fractal Viewer</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: black;
+        }
+        canvas {
+            width: 100vw;
+            height: 100vh;
+            cursor: none;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono&family=Press+Start+2P&family=Permanent+Marker&family=Creepster&family=Special+Elite&family=VT323&family=Nosifer&family=Rubik+Glitch&family=Nabla&family=Silkscreen&family=Opacity+One&family=Rubik+Burned&family=Rubik+Wet+Paint&family=Butcherman&family=Eater&family=Faster+One&family=Frijole&family=Metal+Mania&family=Monoton&family=Rubik+Iso&family=Stick&family=Bungee+Shade&family=Londrina+Sketch&family=Splash&family=Rubik+Puddles&family=Hanalei&family=Hanalei+Fill&family=Bungee+Hairline&family=Bungee+Outline&family=Flavors&family=Jolly+Lodger&family=Kumar+One+Outline&family=Londrina+Outline&family=Londrina+Shadow&family=Miss+Fajardose&family=Modak&family=New+Rocker&family=Nixie+One&family=Opacity+Zero&family=Plaster&family=Rakkas&family=Ruslan+Display&family=Sevillana&family=Snowburst+One&family=Stalinist+One&family=Unlock&family=Vampiro+One&family=Zen+Tokyo+Zoo&display=swap');
+
+        .floating-text {
+            position: absolute;
+            color: #ffffff;
+            pointer-events: none;
+            mix-blend-mode: difference;
+            transition: all 0.02s steps(2);
+            user-select: none;
+            font-weight: 900;
+            letter-spacing: 2px;
+            filter: contrast(1.2) brightness(1.1);
+        }
+
+        @keyframes subtleGlitch {
+            0%, 85% { 
+                transform: translate(0);
+                opacity: 1;
+            }
+            86% { 
+                transform: translate(-4px, 3px);
+                opacity: 0.7;
+            }
+            87% { 
+                transform: translate(0);
+                opacity: 1;
+            }
+            88% { 
+                transform: translate(5px, -4px);
+                opacity: 0.6;
+            }
+            89% { 
+                transform: translate(-3px, 0);
+                opacity: 0.9;
+            }
+            90% { 
+                transform: translate(0);
+                opacity: 1;
+            }
+            98% { 
+                transform: translate(6px, -3px);
+                opacity: 0.5;
+            }
+            99% { 
+                transform: translate(-5px, 2px);
+                opacity: 0.7;
+            }
+            100% { 
+                transform: translate(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes digitalNoise {
+            0%, 90% { 
+                clip-path: inset(0 0 0 0);
+                transform: translate(0);
+            }
+            91% { 
+                clip-path: inset(35% 0 15% 0);
+                transform: translate(8px, 0);
+            }
+            92% { 
+                clip-path: inset(0 0 0 0);
+                transform: translate(-5px, 3px);
+            }
+            93% { 
+                clip-path: inset(10% 0 85% 0);
+                transform: translate(0, -6px);
+            }
+            94% { 
+                clip-path: inset(0 0 0 0);
+                transform: translate(0);
+            }
+            99% { 
+                clip-path: inset(75% 0 0 0);
+                transform: translate(-8px, 5px);
+            }
+            100% { 
+                clip-path: inset(0 0 0 0);
+                transform: translate(0);
+            }
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <script id="fragmentShader" type="x-shader/x-fragment">
+        uniform vec2 resolution;
+        uniform float zoom;
+        uniform vec2 center;
+        uniform vec2 mouse;
+        uniform float time;
+        uniform float quality;
+        uniform vec2 seed1;  // Random seed components
+        uniform vec2 seed2;  // Additional random components
+
+        // More distinct base colors with higher contrast
+        vec3 palette(float t) {
+            // Base colors with better visibility
+            vec3 a = vec3(0.05, 0.02, 0.15);     // Dark purple base
+            vec3 b = vec3(0.95, 0.25, 0.05);     // Strong rust/orange
+            vec3 c = vec3(0.7, 0.2, 0.2);        // Color cycle control
+            vec3 d = vec3(0.05, 0.0, 0.15);      // Phase shift
+
+            // Create pattern with better visibility
+            vec3 color = a + b * cos(6.28318 * (c * t + d));
+            
+            // Enhance pattern definition
+            color = pow(color, vec3(1.5, 0.8, 1.8));  // Less extreme power values
+            
+            // Calculate brightness with better balance
+            float brightness = pow((color.r + color.g + color.b) / 3.0, 1.2);
+            
+            // Three-tone color mixing
+            vec3 darkColor = vec3(0.05, 0.01, 0.2);     // Dark purple
+            vec3 midColor = vec3(0.3, 0.05, 0.4);       // Mid purple
+            vec3 brightColor = vec3(0.95, 0.3, 0.05);   // Bright rust/orange
+
+            // Smoother transitions between colors
+            color = mix(darkColor, midColor, smoothstep(0.2, 0.4, brightness));
+            color = mix(color, brightColor, smoothstep(0.5, 0.7, brightness));
+            
+            // Enhance contrast while maintaining visibility
+            color *= 1.0 + pow(brightness, 1.5);  // Less aggressive brightness boost
+            
+            // Final color adjustment
+            color = pow(color, vec3(0.9));  // Slight gamma correction
+            
+            return clamp(color, 0.0, 1.0);
+        }
+
+        // Add variation based on position
+        vec2 rotate(vec2 v, float a) {
+            float s = sin(a);
+            float c = cos(a);
+            return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+        }
+
+        // Double precision emulation helpers
+        vec2 add(vec2 dsa, vec2 dsb) {
+            vec2 dsc = vec2(0.0);
+            float t1 = dsa.x + dsb.x;
+            float e = t1 - dsa.x;
+            float t2 = ((dsb.x - e) + (dsa.x - (t1 - e))) + dsa.y + dsb.y;
+            dsc.x = t1 + t2;
+            dsc.y = t2 - (dsc.x - t1);
+            return dsc;
+        }
+
+        vec2 mul(vec2 dsa, vec2 dsb) {
+            vec2 dsc = vec2(0.0);
+            float t1 = dsa.x * dsb.x;
+            float e = t1 - dsa.x * dsb.x;
+            float t2 = ((dsa.x * dsb.x - e) + dsa.x * dsb.y + dsa.y * dsb.x) + dsa.y * dsb.y;
+            dsc.x = t1 + t2;
+            dsc.y = t2 - (dsc.x - t1);
+            return dsc;
+        }
+
+        // Complex number operations with double precision
+        vec4 complexMul(vec4 a, vec4 b) {
+            vec2 real = mul(a.xy, b.xy) - mul(a.zw, b.zw);
+            vec2 imag = mul(a.xy, b.zw) + mul(a.zw, b.xy);
+            return vec4(real, imag);
+        }
+
+        vec4 complexSquare(vec4 z) {
+            vec2 real = mul(z.xy, z.xy) - mul(z.zw, z.zw);
+            vec2 imag = mul(vec2(2.0, 0.0), mul(z.xy, z.zw));
+            return vec4(real, imag);
+        }
+
+        void main() {
+            vec2 uv = (gl_FragCoord.xy - 0.5 * resolution.xy) / min(resolution.x, resolution.y);
+            vec4 c = vec4(uv / zoom + center, 0.0, 0.0);
+            vec4 z = c;
+            
+            // Create more chaotic parameters based on seeds
+            vec4 juliaC = vec4(
+                seed1.x + sin(uv.x * seed2.x) * 0.5,
+                seed1.y + cos(uv.y * seed2.y) * 0.5,
+                seed2.x * sin(time * 0.1) * 0.3,
+                seed2.y * cos(time * 0.1) * 0.3
+            );
+            
+            // Add mouse influence
+            juliaC.xy += vec2(
+                (mouse.x * 2.0 - 1.0) * 0.2,
+                (mouse.y * 2.0 - 1.0) * 0.2
+            );
+            
+            float iterations = 0.0;
+            const float maxIterations = 256.0;
+            float smoothVal = 0.0;
+            
+            // Add non-circular distortion
+            float distort = sin(atan(c.y, c.x) * seed1.x + length(c.xy) * seed2.y) * 0.3;
+            z.xy *= 1.0 + distort;
+            
+            // Main iteration with variations
+            for(float i = 0.0; i < maxIterations; i++) {
+                iterations = i;
+                
+                // Add non-uniform transformation
+                float angle = seed1.x * sin(length(z.xy) * seed2.x) * 0.1;
+                z.xy = rotate(z.xy, angle);
+                
+                // Modified iteration
+                z = complexSquare(z);
+                
+                // Add asymmetric influence
+                z.xy += juliaC.xy * (1.0 + sin(z.x * seed1.y) * 0.2);
+                
+                // Non-circular escape condition
+                float lengthSq = dot(z.xy, z.xy);
+                lengthSq *= 1.0 + sin(atan(z.y, z.x) * seed2.x) * 0.2;
+                
+                if(lengthSq > 4.0) {
+                    smoothVal = i + 1.0 - log(log(lengthSq)) / log(2.0);
+                    break;
+                }
+            }
+
+            float v = smoothVal / maxIterations;
+            v = pow(v, 0.4);
+            
+            // More varied coloring
+            float colorOffset = sin(atan(c.y, c.x) * seed1.x) * 0.3 
+                             + cos(length(c.xy) * seed2.y) * 0.3;
+            vec3 baseColor = palette(v * 3.0 + time * 0.1 + colorOffset);
+            
+            gl_FragColor = vec4(baseColor, 1.0);
+        }
+    </script>
+
+    <script>
+        let scene, camera, renderer, material;
+        let zoom = 1.0;
+        let centerX = 0.0;
+        let centerY = 0.0;
+        let mouseX = 0.5;
+        let mouseY = 0.5;
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let lastFrameTime = 0;
+        let frameCounter = 0;
+        const TARGET_FRAMERATE = 60;
+        let quality = 1.0;
+
+        // Add adaptive quality control
+        function updateQuality() {
+            const currentTime = performance.now();
+            const frameTime = currentTime - lastFrameTime;
+            const fps = 1000 / frameTime;
+            
+            if (fps < TARGET_FRAMERATE - 10) {
+                quality = Math.max(0.5, quality - 0.1);
+            } else if (fps > TARGET_FRAMERATE + 5) {
+                quality = Math.min(1.0, quality + 0.05);
+            }
+            
+            lastFrameTime = currentTime;
+            frameCounter++;
+            
+            // Update resolution based on quality
+            const newWidth = window.innerWidth * quality;
+            const newHeight = window.innerHeight * quality;
+            renderer.setSize(newWidth, newHeight, false);
+            renderer.domElement.style.width = '100vw';
+            renderer.domElement.style.height = '100vh';
+        }
+
+        // Enhanced random function with more entropy
+        function cryptoRandom() {
+            const array = new Uint32Array(4);  // Get more random values
+            crypto.getRandomValues(array);
+            return (array[0] ^ array[1] ^ array[2] ^ array[3]) / (0xffffffff + 1);
+        }
+
+        function generateRandomSeeds() {
+            // Generate completely new random parameters with wider ranges
+            return {
+                x1: (cryptoRandom() * 6 - 3),       // Wider range: -3 to 3
+                y1: (cryptoRandom() * 4 - 2),       // Wider range: -2 to 2
+                x2: (cryptoRandom() * 6 - 3),       // Wider range: -3 to 3
+                y2: (cryptoRandom() * 4 - 2),       // Wider range: -2 to 2
+                phase: cryptoRandom() * Math.PI * 4, // Double phase range
+                scale: cryptoRandom() * 0.5 + 0.5,  // Random scaling
+                twist: cryptoRandom() * 2.0 - 1.0   // Random twist factor
+            };
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: false,
+                powerPreference: "high-performance",
+                precision: "highp"
+            });
+            
+            // Force new random seeds on each load
+            const randomParams = generateRandomSeeds();
+            
+            const seed1 = new THREE.Vector2(
+                randomParams.x1 * Math.cos(randomParams.phase) * randomParams.scale,
+                randomParams.y1 * Math.sin(randomParams.phase + randomParams.twist)
+            );
+            const seed2 = new THREE.Vector2(
+                randomParams.x2 * Math.sin(randomParams.phase * 1.5) * randomParams.scale,
+                randomParams.y2 * Math.cos(randomParams.phase * 0.7 + randomParams.twist)
+            );
+
+            // Clear any cached values
+            THREE.Cache.clear();
+            renderer.setPixelRatio(window.devicePixelRatio * quality);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            material = new THREE.ShaderMaterial({
+                fragmentShader: document.getElementById('fragmentShader').textContent,
+                uniforms: {
+                    resolution: { value: new THREE.Vector2(window.innerWidth * quality, window.innerHeight * quality) },
+                    zoom: { value: zoom },
+                    center: { value: new THREE.Vector2(centerX, centerY) },
+                    mouse: { value: new THREE.Vector2(mouseX, mouseY) },
+                    time: { value: cryptoRandom() * 1000 },  // Random starting time
+                    quality: { value: quality },
+                    seed1: { value: seed1 },
+                    seed2: { value: seed2 }
+                }
+            });
+
+            const geometry = new THREE.PlaneGeometry(2, 2);
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+
+            // Throttle event listeners
+            window.addEventListener('resize', throttle(onWindowResize, 100), false);
+            window.addEventListener('wheel', throttle(onWheel, 16), { passive: false });
+            window.addEventListener('mousemove', throttle(onMouseMove, 16), false);
+            window.addEventListener('mousedown', onMouseDown, false);
+            window.addEventListener('mouseup', onMouseUp, false);
+            window.addEventListener('mouseleave', onMouseUp, false);
+
+            startTextAnimation();
+        }
+
+        // Throttle function to limit event frequency
+        function throttle(func, limit) {
+            let inThrottle;
+            return function(...args) {
+                if (!inThrottle) {
+                    func.apply(this, args);
+                    inThrottle = true;
+                    setTimeout(() => inThrottle = false, limit);
+                }
+            }
+        }
+
+        function onWindowResize() {
+            const width = window.innerWidth * quality;
+            const height = window.innerHeight * quality;
+            renderer.setSize(width, height, false);
+            material.uniforms.resolution.value.set(width, height);
+        }
+
+        function onWheel(event) {
+            event.preventDefault();
+            const zoomSpeed = 2.0;
+            const factor = Math.exp(-event.deltaY * 0.005 * zoomSpeed);
+            
+            // Calculate mouse position in world coordinates before zoom
+            const mouseXWorld = (mouseX - 0.5) * 4.0 / zoom + centerX;
+            const mouseYWorld = (mouseY - 0.5) * 4.0 / zoom + centerY;
+            
+            // Update zoom
+            zoom *= factor;
+            material.uniforms.zoom.value = zoom;
+            
+            // Update center to keep mouse position fixed
+            centerX = mouseXWorld - (mouseX - 0.5) * 4.0 / zoom;
+            centerY = mouseYWorld - (mouseY - 0.5) * 4.0 / zoom;
+            material.uniforms.center.value.set(centerX, centerY);
+        }
+
+        function onMouseDown(event) {
+            isDragging = true;
+            lastMouseX = event.clientX;
+            lastMouseY = event.clientY;
+        }
+
+        function onMouseUp() {
+            isDragging = false;
+        }
+
+        function onMouseMove(event) {
+            if (isDragging) {
+                // Calculate the change in mouse position in screen coordinates
+                const deltaX = (event.clientX - lastMouseX);
+                const deltaY = (event.clientY - lastMouseY);
+                
+                // Convert screen coordinates to world coordinates based on zoom
+                const aspectRatio = window.innerWidth / window.innerHeight;
+                const worldDeltaX = (deltaX / window.innerWidth) * 4.0 * aspectRatio / zoom;
+                const worldDeltaY = (deltaY / window.innerHeight) * 4.0 / zoom;
+                
+                // Update center position
+                centerX -= worldDeltaX;
+                centerY += worldDeltaY;
+                
+                material.uniforms.center.value.set(centerX, centerY);
+                
+                // Update last position
+                lastMouseX = event.clientX;
+                lastMouseY = event.clientY;
+            }
+
+            // Update mouse position for fractal interaction
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouseX = (event.clientX - rect.left) / rect.width;
+            mouseY = 1.0 - (event.clientY - rect.top) / rect.height;
+            material.uniforms.mouse.value.set(mouseX, mouseY);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Update quality and resolution adaptively
+            updateQuality();
+            
+            // Update uniforms
+            material.uniforms.time.value += 0.01;
+            material.uniforms.quality.value = quality;
+            material.uniforms.resolution.value.set(
+                window.innerWidth * quality, 
+                window.innerHeight * quality
+            );
+            
+            renderer.render(scene, camera);
+        }
+
+        // Add this to force reload with new random values
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'r' || event.key === 'R') {
+                location.reload();
+            }
+        });
+
+        const fonts = [
+            'Nosifer',
+            'Rubik Glitch',
+            'Nabla',
+            'Butcherman',
+            'Eater',
+            'Metal Mania',
+            'Rubik Iso',
+            'Rubik Puddles',
+            'Rubik Wet Paint',
+            'Hanalei',
+            'Hanalei Fill',
+            'Bungee Outline',
+            'Bungee Shade',
+            'Flavors',
+            'Jolly Lodger',
+            'Kumar One Outline',
+            'Londrina Outline',
+            'Londrina Shadow',
+            'Londrina Sketch',
+            'Miss Fajardose',
+            'Modak',
+            'Monoton',
+            'New Rocker',
+            'Nixie One',
+            'Opacity Zero',
+            'Plaster',
+            'Rakkas',
+            'Ruslan Display',
+            'Sevillana',
+            'Snowburst One',
+            'Stalinist One',
+            'Unlock',
+            'Vampiro One',
+            'Zen Tokyo Zoo'
+        ];
+
+        // Update the messages array
+        const messages = [
+            "The internet is dead",
+            "Replacement is nigh",
+            "AI is here",
+            "I can smell the musk of your species"
+        ];
+        let currentMessage = messages[0];
+        let currentLetterIndex = 0;
+
+        function createFloatingLetter() {
+            // Randomly change message when current one is finished
+            if (currentLetterIndex === 0) {
+                currentMessage = messages[Math.floor(Math.random() * messages.length)];
+            }
+
+            const letter = currentMessage[currentLetterIndex];
+            
+            const container = document.createElement('div');
+            container.style.position = 'absolute';
+            container.style.left = `${Math.random() * 80 + 10}%`;
+            container.style.top = `${Math.random() * 80 + 10}%`;
+            container.style.transform = `rotate(${Math.random() * 20 - 10}deg)`;
+            container.style.opacity = '0';
+            container.style.transition = 'opacity 0.3s ease';
+            container.style.zIndex = '1000';
+            container.style.padding = '10px';
+            
+            // Define duration here at the start
+            const duration = 1500 + Math.random() * 1000;
+            
+            const span = document.createElement('span');
+            span.textContent = letter === ' ' ? '\u00A0' : letter;
+            span.style.fontFamily = fonts[Math.floor(Math.random() * fonts.length)];
+            span.style.fontSize = `${Math.random() * 40 + 35}px`;
+            span.className = 'floating-text';
+            
+            // More extreme glitch effect with longer pauses
+            const randomDuration = 2 + Math.random() * 3;  // Longer duration for more stillness
+            const randomDelay = Math.random() * 1.5;       // More varied delays
+            
+            span.style.animation = Math.random() < 0.7 
+                ? `subtleGlitch ${randomDuration}s ease-in-out infinite`
+                : `digitalNoise ${randomDuration}s steps(1) infinite`;  // More abrupt digital noise
+
+            // More extreme color splitting during glitch moments
+            const glitchAmount = Math.random() * 4 - 2;  // Doubled range
+            span.style.textShadow = `
+                ${glitchAmount}px 0 rgba(255,0,0,0.7),
+                ${-glitchAmount}px 0 rgba(0,255,255,0.7)
+            `;
+
+            // More extreme flicker when it happens
+            let flickerInterval;
+            if (Math.random() < 0.2) {  // Less frequent but more intense
+                flickerInterval = setInterval(() => {
+                    if (Math.random() < 0.1) {
+                        span.style.opacity = Math.random() * 0.7;  // More extreme opacity changes
+                        span.style.transform = Math.random() < 0.3 
+                            ? `translate(${Math.random() * 10 - 5}px, ${Math.random() * 10 - 5}px)`
+                            : 'none';
+                    }
+                }, 50 + Math.random() * 200);  // More varied timing
+            }
+
+            container.appendChild(span);
+            document.body.appendChild(container);
+            
+            // More aggressive fade in/out
+            requestAnimationFrame(() => {
+                container.style.opacity = Math.random() < 0.2 ? '0.7' : '1';
+            });
+
+            // Cleanup and removal
+            setTimeout(() => {
+                if (flickerInterval) clearInterval(flickerInterval);
+                container.style.opacity = '0';
+                setTimeout(() => container.remove(), 200);
+            }, duration);
+
+            currentLetterIndex = (currentLetterIndex + 1) % currentMessage.length;
+        }
+
+        function startTextAnimation() {
+            setInterval(() => {
+                if (Math.random() < 0.7) {
+                    createFloatingLetter();
+                }
+            }, 500);
+        }
+
+        init();
+        animate();
+    </script>
+</body>
+</html> 
+</html> 
